@@ -1,0 +1,14 @@
+{
+  "name": "endora-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Endora Console: the screens for Endora Core, a separate deployable that holds no authority of its own.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/main.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check-console.mjs && node scripts/check-independence.mjs && node scripts/check-nothing-personal.mjs"
+  }
+}

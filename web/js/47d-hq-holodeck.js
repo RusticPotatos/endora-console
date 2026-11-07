@@ -1,0 +1,175 @@
+// ---- the Holodeck on the HQ screen (ADR 0135) ----
+// The Work tab lists the chess matches and opens one move by move; the model league has its
+// own tab, Chess (47e, the owner's notes of 31 Oct), which the card points to.
+// The lighthouse, Silent Station, trials and re-runs were retired (2026-10-30). All of it is
+// fetched when it is opened, and all of it is the team's or the world's words, so all of it is
+// escaped.
+
+// How a world ended, in words: "black won", not the stored "black_won".
+function hqHoloEnd(end) { return esc(String(end || "").replace(/_/g, " ")); }
+
+// A chess result in words, given each side as already-escaped text: who won, or a draw.
+function hqChessEnd(end, white, black) {
+  if (end === "white_won") return `${white} won`;
+  if (end === "black_won") return `${black} won`;
+  if (end === "draw") return "drawn";
+  return esc(end || "");
+}
+
+// The brain a league game's side played with, or "" for a game outside the league.
+function hqLeagueBrain(task, side) {
+  const l = ((HQ.snap || {}).holodeck || {}).league || {};
+  const game = (l.games || []).find((g) => Number(g.task) === Number(task));
+  return game ? hqChessLabelRaw(l, game[side]) : "";
+}
+
+// The Holodeck card, folded at the foot of the Work tab: nothing until there is something in it.
+function hqHolodeck(s) {
+  const h = s && s.holodeck;
+  const scenarios = (h && h.scenarios) || [];
+  // One thing, one home: the league is on the Chess tab, and this card says so in a line.
+  const league = h && h.league && (h.league.table || []).length
+    ? `<p class="hq-note">The model league, its live boards, this round's bracket and every game are in the Chess league.</p><div class="hq-row"><button class="hq-btn" data-act="hq:place:chess:go">Open the Chess league</button></div>`
+    : "";
+  if (!scenarios.length && !league) return "";
+  const scen = scenarios.map((x) => hqLine(`hq:holo:open:${Number(x.task)}`, `Chess: ${esc(x.title)}`,
+    `${hqHoloEnd(x.end || x.status)}, ${Number(x.elapsed)} half-moves${x.round ? ` · ${esc(x.round)}` : ""}`));
+  const scenList = hqMore("scenarios", scen, 3);
+  const open = HQ.holo && HQ.holo.what !== "replay" && HQ.holo.where !== "chess" ? hqHoloDetail() : "";
+  return `<section class="hq-card"><h2>Holodeck</h2>
+    <p class="hq-note">Chess the team plays in matches that close themselves, and the league that ranks the brains by it. Nothing here touches the house.</p>
+    ${scen.length ? `<p class="hq-who">Matches</p><ul class="hq-lines">${scenList.shown}</ul>${scenList.more}` : ""}
+    ${league}
+    ${open}</section>`;
+}
+
+// A brain's rating after each game it finished, as a small line (no library): the start alone,
+// before any game, is a flat line. The label is the screen reader's, escaped.
+function hqSpark(history, label) {
+  const seen = (Array.isArray(history) ? history : []).map(Number).filter((n) => Number.isFinite(n));
+  const points = seen.length ? seen : [1200];
+  const w = 60, h = 16, pad = 2;
+  const lo = Math.min(...points), hi = Math.max(...points), span = hi - lo || 1;
+  const x = (i) => points.length === 1 ? (i ? w : 0) : (i * w) / (points.length - 1);
+  const y = (v) => hi === lo ? h / 2 : pad + ((hi - v) * (h - 2 * pad)) / span;
+  const line = (points.length === 1 ? [points[0], points[0]] : points).map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const said = `${esc(label || "")} rating ${points.join(", ")}`;
+  return `<svg class="hq-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${said}"><polyline points="${line}"/></svg>`;
+}
+
+// Whatever is open: a match, with a way to close it.
+function hqHoloDetail() {
+  const h = HQ.holo;
+  if (!h || !h.data) return "";
+  const close = `<div class="hq-row"><button class="hq-btn" data-act="hq:holo:close:0">Close</button></div>`;
+  return hqScenarioView(h.data) + close;
+}
+
+// A match move by move: where it stands, and every action tried, refused ones too.
+function hqScenarioView(d) {
+  const head = `<div class="hq-sel">Chess · task ${Number(d.task)}${d.end ? ` · ${hqHoloEnd(d.end)}` : ""}</div>`;
+  // The game in standard notation, for any chess program: copied, or saved as a file.
+  const pgn = `<div class="hq-row"><button class="hq-btn" data-act="hq:holo:copy:${Number(d.task)}">Copy PGN</button><button class="hq-btn" data-act="hq:holo:save:${Number(d.task)}">Download PGN</button></div>`;
+  const sides = d.sides || {};
+  // Black's side above the board and white's below, as the board is drawn, each with its brain in a league game.
+  const side = (colour) => { const brain = hqLeagueBrain(d.task, colour); return `${esc(sides[colour] || "")}${brain ? ` · ${esc(brain)}` : ""}`; };
+  const who = (colour) => `${colour === "white" ? "White" : "Black"} (${esc(sides[colour] || "")})`;
+  const seen = d.positions || [], last = seen.length - 1;
+  const ply = hqHoloPly(last);
+  const rows = seen.length ? seen[ply] : d.rows;
+  const lit = ply > 0 ? hqChessMoved(seen[ply - 1], seen[ply]) : [];
+  const board = rows ? hqChessBoard({ rows, white: sides.white || "", black: sides.black || "", fen: d.fen || "", lit }) : "";
+  const state = d.result && d.result !== "in_progress" ? `${hqChessEnd(d.result, who("white"), who("black"))}${d.reason ? `, ${esc(d.reason)}` : ""}` : `${who(d.to_move === "black" ? "black" : "white")} to move`;
+  const moves = seen.length > 1 ? hqChessSteps(d, ply, last) : `<p class="hq-note">${d.moves ? esc(d.moves) : "No moves yet."}</p>`;
+  const body = `<p class="hq-side black">♚\uFE0E Black: ${side("black")}</p>${board}<p class="hq-side white">♔\uFE0E White: ${side("white")}</p>
+    <p>${state}</p>${moves}${pgn}`;
+  const roles = (d.by_role || []).map((r) => `<li>${esc(r.role)}: ${esc(r.by)}, ${Number(r.accepted)} legal, ${Number(r.refused)} illegal</li>`).join("");
+  const steps = (d.log || []).map((a) => `<li${a.ok ? "" : ` class="hq-refused"`}>${a.ok ? "" : "refused: "}${esc(a.by)}${a.role ? ` (${esc(a.role)})` : ""}: ${esc(a.action)} → ${esc(a.said)}</li>`).join("");
+  return `${head}${body}${roles ? `<ul class="hq-team">${roles}</ul>` : ""}
+    ${steps ? `<p class="hq-who">Step by step</p><ol class="hq-log hq-steps">${steps}</ol>` : `<p class="hq-empty">Nothing done yet.</p>`}`;
+}
+
+// The move the owner has stepped to, or the latest while they watch it live.
+function hqHoloPly(last) {
+  const ply = HQ.holo && HQ.holo.ply;
+  return ply === undefined || ply === null ? last : Math.max(0, Math.min(last, Number(ply)));
+}
+
+// The squares a move changed, from the rows before it and after: two, or four for castling.
+function hqChessMoved(before, after) {
+  const lit = [];
+  (after || []).forEach((row, r) => [...String(row)].forEach((ch, f) => {
+    if (String((before || [])[r] || "")[f] !== ch) lit.push(r * 8 + f);
+  }));
+  return lit;
+}
+
+// A game to watch: step through it, or tap a move in the list; live until the owner steps back.
+function hqChessSteps(d, ply, last) {
+  const list = d.move_list || [];
+  const following = !d.end && (HQ.holo.ply === undefined || HQ.holo.ply === null);
+  const step = (to, label, name) => `<button class="hq-btn" data-act="hq:holo:ply:${to}" aria-label="${name}">${label}</button>`;
+  const at = ply === 0 ? "Start" : `Move ${ply} of ${last}: ${ply % 2 ? "white" : "black"} played ${esc(list[ply - 1] || "")}`;
+  const pairs = [];
+  for (let i = 0; i < list.length; i += 2) {
+    const move = (j) => list[j] === undefined ? "" : `<button class="hq-move${j + 1 === ply ? " on" : ""}" data-act="hq:holo:ply:${j + 1}">${esc(list[j])}</button>`;
+    pairs.push(`<li>${i / 2 + 1}. ${move(i)} ${move(i + 1)}</li>`);
+  }
+  return `<div class="hq-row">${step(0, "⏮", "Start")}${step(Math.max(0, ply - 1), "◀", "Back a move")}${step(ply + 1 >= last ? "live" : ply + 1, "▶", "On a move")}${step("live", "⏭", "Latest")}</div>
+    <p class="hq-note">${at}${following ? " · Live" : ""}</p><ol class="hq-moves">${pairs.join("")}</ol>`;
+}
+
+// While a game being played is open, fetch it again so the board moves on its own;
+// where the owner stepped to is kept.
+async function hqHoloRefresh() {
+  const open = HQ.holo;
+  if (!open || open.what !== "scenario" || !open.data || open.data.end) return false;
+  const data = await api("GET", `/v1/hq/scenarios/${Number(open.data.task)}`);
+  if (HQ.holo !== open) return false;
+  const moved = JSON.stringify(data) !== JSON.stringify(open.data);
+  open.data = data;
+  return moved;
+}
+
+// A match's PGN as HQ writes it, fetched with this device's token.
+async function hqHoloPgn(task) {
+  const res = await fetch(`/v1/hq/scenarios/${Number(task)}/pgn`, { headers: signed({}) });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.text();
+}
+
+// The taps: open a match (on the Work card, or "watch" on the Chess tab), step through it, copy
+// or save its PGN, close what is open, and page through the league's games.
+async function hqHoloAct(what, arg) {
+  if (what === "page") { await hqChessLoad(arg); return true; }
+  if (what === "close") { HQ.holo = null; render(); return true; }
+  if (what === "copy") {
+    try {
+      const text = await hqHoloPgn(arg);
+      if (!navigator.clipboard) throw new Error("this page cannot reach the clipboard; download it instead");
+      await navigator.clipboard.writeText(text);
+      flash("The game's PGN is copied.", "ok");
+    } catch (e) { flash("Couldn't copy the PGN: " + e.message, "err"); }
+    return true;
+  }
+  if (what === "save") {
+    try {
+      const name = `endora-match-${Number(arg)}.pgn`;
+      const url = URL.createObjectURL(new Blob([await hqHoloPgn(arg)], { type: "application/x-chess-pgn" }));
+      const a = document.createElement("a"); a.href = url; a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      flash(`The game is saved as ${name}.`, "ok");
+    } catch (e) { flash("Couldn't download the PGN: " + e.message, "err"); }
+    return true;
+  }
+  // A step through the game: past the last move, or "live", follows it again.
+  if (what === "ply") {
+    const last = ((HQ.holo && HQ.holo.data && HQ.holo.data.positions) || []).length - 1;
+    if (HQ.holo) HQ.holo.ply = arg === "live" || Number(arg) >= last ? null : Number(arg);
+    render(); return true;
+  }
+  if (what !== "open" && what !== "watch") return true;
+  try { HQ.holo = { what: "scenario", where: what === "watch" ? "chess" : "work", data: await api("GET", `/v1/hq/scenarios/${Number(arg)}`) }; }
+  catch (e) { flash("Couldn't open it: " + e.message, "err"); }
+  render(); return true;
+}

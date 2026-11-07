@@ -13,8 +13,9 @@ contract.
 - **Sign-in:** Core's own password and authenticator code. Console keeps no session and no
   credential; your session goes from the browser to Core in the request header.
 - **Writes:** only from Console's own page (its origin), as JSON.
-- **Endora Audio:** Speakers show Audio's status and a link to Audio's own page. The Spotify
-  player is not in Console yet: where it goes is waiting on the owner's decision.
+- **Endora Audio:** Speakers show Audio's status and a link to Audio's own page. Music is
+  played from the Spotify app, which sees Endora's receiver through Spotify Connect; Console
+  links to it and never calls Spotify or holds its token.
 
 ## Run it
 

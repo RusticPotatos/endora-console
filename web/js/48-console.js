@@ -14,7 +14,7 @@
 //   3. Each answer's stages (requested, accepted, executed, verified) show separately in a
 //      tray, kept from Core's record, so a dropped connection never leaves "did it work?".
 //   4. Speakers are Endora Audio's own page: here they show its status and a link, from Audio's
-//      own health check. The Spotify player waits on the owner's decision (Endora ADR 0145).
+//      own health check. Music is a link to the Spotify app (the owner's MU1 = b).
 //
 // Function declarations: in one joined script the last declaration of a name is the one used,
 // so these replace the copies above without editing them.
@@ -238,9 +238,8 @@ async function consoleStream() {
 }
 
 // ---- Audio ----------------------------------------------------------------------------------
-// Speakers are Endora Audio's own page. Music (the Spotify player) needs the Spotify token,
-// which moves to Audio, and Audio's page has no player yet: that destination is the owner's
-// decision (Endora ADR 0145), so Music shows Audio's status and says so. The home lab, media and
+// Speakers are Endora Audio's own page. Music is played from the Spotify app (MU1 = b), and
+// Music shows Audio's status and a link to it. The home lab, media and
 // smart home screens (45-lab.js) are Console's, through the contract's home area.
 
 async function loadSound() {
@@ -268,14 +267,17 @@ function consoleAudioCard(title, more) {
 }
 
 function viewSound() { return consoleAudioCard("Speakers", "Speakers are Endora Audio's own page."); }
+// Music is played from the Spotify app (the owner, MU1 = b, 7 Nov): Spotify Connect already sees
+// Endora's receiver. A plain link, no call to Spotify and no token: the token stays in Audio.
 function viewMusic() {
-  return consoleAudioCard("Music", "The Spotify player is not in Endora Console yet: where it goes is waiting on a decision. Endora's receiver still shows in the Spotify app as a device to play on.");
+  return consoleAudioCard("Music", "Play music from the Spotify app: Endora's receiver is one of its devices.") +
+    `<div class="row" style="margin-top:8px"><a class="ghost" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Open Spotify</a></div>`;
 }
 
-// The player's calls are Audio's (the Spotify token moves there); none is made from Console.
-async function musicDispatch() { flash("The Spotify player is not in Endora Console yet.", "warn"); }
-async function spotify() { throw new Error("The Spotify player is not in Endora Console yet."); }
-async function spotifyToken() { throw new Error("The Spotify player is not in Endora Console yet."); }
+// The copied player's calls are never made from Console: the Spotify token stays in Audio.
+async function musicDispatch() { flash("Play music from the Spotify app.", "warn"); }
+async function spotify() { throw new Error("Music is played from the Spotify app."); }
+async function spotifyToken() { throw new Error("Music is played from the Spotify app."); }
 
 async function soundDispatch(verb, noun) {
   if (verb === "console" && noun === "tray") { CONSOLE.decisions = []; consoleTray(); return true; }

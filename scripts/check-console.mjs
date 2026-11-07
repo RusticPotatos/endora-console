@@ -3528,7 +3528,11 @@ console.log(`breadcrumbs: ${settingsViews.length} screens under Settings all say
   if (!speakers.includes("Endora Audio is running") || !speakers.includes('href="http://audio.example.com:8099/"')) fail("console: Speakers does not show Audio's status and link");
   runInContext(`CONSOLE.audio = { configured: false, ok: false, link: "" };`, context);
   const music = runInContext("viewMusic()", context);
-  if (!music.includes("not connected") || !music.includes("waiting on a decision")) fail("console: Music does not say Audio's status and that the player waits on a decision");
+  // MU1 = (b), the owner, 7 Nov: music is played from the Spotify app, which sees Endora's
+  // receiver through Spotify Connect. Console shows Audio's status and a plain link, nothing more.
+  if (!music.includes("not connected")) fail("console: Music does not say Audio's status");
+  if (!/<a [^>]*href="https:\/\/open\.spotify\.com\/"[^>]*rel="noopener noreferrer"/.test(music)) fail("console: Music has no plain link to open the Spotify app");
+  if (/waiting on a decision/.test(music)) fail("console: Music still says it waits on a decision (MU1 is decided)");
   // The player never reaches for the Spotify token or Spotify from Console (the token is Audio's).
   const before = requested.length;
   await runInContext('dispatch("music:toggle")', context);

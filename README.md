@@ -40,6 +40,7 @@ Then open `http://<this machine>:8080`. To serve HTTPS directly, put a certifica
 | `AUDIO_PUBLIC_URL` | The link to Audio's page that Console shows (optional). |
 | `CONSOLE_PORT` | The host port (default 8080). |
 | `CONSOLE_TAG` | The image tag (default `latest`; pin a `sha-…` tag in production). |
+| `CONSOLE_CONTAINER_NAME` | The container's name (default `endora-console`). Set it only for a second Console on one host. |
 
 The page is served with a Content Security Policy: scripts, data and pictures from Console's
 own origin only, the two typefaces from Google Fonts, no framing. It still allows inline scripts,

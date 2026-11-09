@@ -244,26 +244,8 @@ async function reload() {
   render();
 }
 
-// Subscribe to the node's change stream; every "changed" event refreshes the
-// snapshot and feed live. Reconnection is handled by the browser's EventSource.
-function subscribeToActivity() {
-  try {
-    const es = new EventSource("/v1/activity/stream?token=" + encodeURIComponent(token()));
-    // A background "changed" event refreshes the snapshot — but a full re-render
-    // must never yank unsaved work out from under the person:
-    //  - not while they're on Settings or the AI screen (unsaved form input — an
-    //    endpoint, a typed API key, a picked preset, a provider chosen for a list —
-    //    would be reset to stored values),
-    //  - not while they're typing in any field.
-    // Their own saves call reload() explicitly, so the view still updates on action.
-    es.addEventListener("changed", () => {
-      if (NAV.v === "settings" || NAV.v === "models") return;
-      const ae = document.activeElement;
-      if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
-      reload().catch(() => {});
-    });
-  } catch (_) { /* SSE unavailable: the UI still works, just not live. */ }
-}
+// `subscribeToActivity` (the live refresh) is Console's own, in 48-console.js: one stream on
+// `/v1/events/stream`, signed in a header.
 
 // What one screen shows that nothing else needs, fetched when it opens and on a reload while it
 // is showing. Opening Mail from the menu used to show "Loading…" until something else happened

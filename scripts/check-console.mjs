@@ -2819,9 +2819,9 @@ context.fetch = (path, opts = {}) => {
 }
 
 // Every request the screens can make is in the Core contract (Endora's docs/api/console-v1.json,
-// pinned in contract/), once Console's own `consoleRoute` has carried the old desk and event
-// calls onto it. Read from the source, so a path on a branch nothing here exercises is held too;
-// the requests the check actually makes are held to the same list at the end.
+// pinned in contract/). Read from the source, so a path on a branch nothing here exercises is
+// held too (test/ui-routes.test.mjs does the same, more strictly); the requests the check
+// actually makes are held to the same list at the end.
 {
   const fail = (what) => { console.error(what); process.exit(1); };
   // A path built with `+ encodeURIComponent(x) +` reads as one with a parameter in it.
@@ -2844,8 +2844,7 @@ context.fetch = (path, opts = {}) => {
   const outside = [];
   for (const [method, path] of literals.concat(fetched)) {
     const shaped = path.replace(/\$\{[^}]*\}/g, "7").split("?")[0];
-    const routed = runInContext(`consoleRoute(${JSON.stringify(method)}, ${JSON.stringify(shaped)}, { decision: "seen" }).path`, context);
-    if (!allowed(method, routed.split("?")[0])) outside.push(`${method} ${path}`);
+    if (!allowed(method, shaped)) outside.push(`${method} ${path}`);
   }
   if (outside.length) fail(`requests: the console calls these and the Core contract does not list them: ${[...new Set(outside)].join(", ")}`);
   if (literals.length < 50) fail(`requests: only ${literals.length} calls found; the reading of the source is broken`);
@@ -3478,20 +3477,34 @@ console.log(`breadcrumbs: ${settingsViews.length} screens under Settings all say
   console.log(`home lab, media, smart home: render, act through the allowlist, and fetch when opened (${fetched.size} screens)`);
 }
 
-// Console's own part (web/js/48-console.js): the old desk and event calls carried onto the
-// contract, each answer's stages said separately, the stream's catch-up applied once, Music and
+// Console's own part (web/js/48-console.js): the desk answer sent to the contract's decisions
+// route, each answer's stages said separately, the stream's catch-up applied once, Music and
 // Speakers and Music as Audio's status, the home lab through the contract, and every request this check made inside the contract.
 {
   const fail = (what) => { console.error(what); process.exit(1); };
-  const route = (m, p, b) => runInContext(`JSON.stringify(consoleRoute(${JSON.stringify(m)}, ${JSON.stringify(p)}, ${JSON.stringify(b)}))`, context);
-  const desk = JSON.parse(route("POST", "/v1/hq/desk/12", { decision: "approve", answer: "" }));
-  if (desk.path !== "/v1/decisions/12" || desk.body.choice !== "approve" || desk.body.channel !== "console" || !desk.body.request) {
-    fail("console: a desk answer is not carried to /v1/decisions with its choice, channel and request key: " + JSON.stringify(desk));
+  // An answer goes straight to the contract's /v1/decisions/{id}: the choice, the owner's words,
+  // the channel and one request key per item and choice, so a second press is the same request.
+  {
+    const sent = [];
+    const realFetch = context.fetch;
+    context.fetch = (path, opts = {}) => {
+      sent.push([String(path), opts.method, opts.body && JSON.parse(opts.body)]);
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ decision: { id: 12, choice: "approve", stages: {} } }) });
+    };
+    await runInContext(`consoleDecide("12", "approve", "")`, context);
+    await runInContext(`consoleDecide(12, "approve", "")`, context);
+    await runInContext(`consoleDecide(13, "seen", "the blue one")`, context);
+    context.fetch = realFetch;
+    const [first, second, third] = sent;
+    if (!first || first[0] !== "/v1/decisions/12" || first[1] !== "POST" || first[2].choice !== "approve" || first[2].channel !== "console" || !first[2].request) {
+      fail("console: a desk answer is not sent to /v1/decisions with its choice, channel and request key: " + JSON.stringify(sent));
+    }
+    if (second[2].request !== first[2].request) fail("console: a second press of the same answer is a new request, not the same one");
+    if (third[0] !== "/v1/decisions/13" || third[2].choice !== "seen" || third[2].words !== "the blue one" || third[2].request === first[2].request) {
+      fail("console: the owner's words do not reach Core as `words`, or another item shares a request key: " + JSON.stringify(third));
+    }
+    runInContext("CONSOLE.decisions = []; CONSOLE.keys = {};", context);
   }
-  const again = JSON.parse(route("POST", "/v1/hq/desk/12", { decision: "approve", answer: "" }));
-  if (again.body.request !== desk.body.request) fail("console: a second press of the same answer is a new request, not the same one");
-  if (JSON.parse(route("GET", "/v1/hq/events?after=5", undefined)).path !== "/v1/events?after=5") fail("console: HQ's event poll is not carried to /v1/events");
-  if (JSON.parse(route("GET", "/v1/hq", undefined)).path !== "/v1/hq") fail("console: an ordinary call is changed");
 
   // Stages: each said on its own, a failure as a failure, never one "done".
   runInContext(`CONSOLE.decisions = [];

@@ -109,7 +109,7 @@ function hqStartPolling() {
       try { if (await hqHoloRefresh() && NAV.v === "hq" && !hqTyping()) render(); } catch (_) { /* the next poll tries again */ }
     }
     try {
-      const got = await api("GET", `/v1/hq/events?after=${HQ.last}`);
+      const got = await api("GET", `/v1/events?after=${HQ.last}`);
       const events = got.events || [];
       if (!events.length) return;
       for (const e of events) { hqTell(e, true); HQ.last = Math.max(HQ.last, e.id); }
@@ -896,7 +896,7 @@ async function hqLogPage(before, want) {
   const lines = [];
   let next = before;
   for (let ask = 0; ask < HQ_LOG_ASKS && next > 1; ask++) {
-    const got = await api("GET", `/v1/hq/events?before=${Number(next)}&limit=${HQ_LOG_BATCH}`);
+    const got = await api("GET", `/v1/events?before=${Number(next)}&limit=${HQ_LOG_BATCH}`);
     const events = (got.events || []).slice().reverse();
     for (const e of events) {
       next = e.id;
@@ -1766,7 +1766,7 @@ async function hqDispatch(verb, noun, id, arg) {
     // toast that fades is easy to miss on a phone, and the card would look as if nothing
     // had been pressed.
     delete HQ.deskNote[id];
-    try { await api("POST", `/v1/hq/desk/${id}`, { decision: arg, answer }); flash(answer ? "Answered." : "Decided.", "ok"); }
+    try { await consoleDecide(id, arg, answer); flash(answer ? "Answered." : "Decided.", "ok"); }
     catch (e) { HQ.deskNote[id] = "Couldn't decide: " + e.message; flash(HQ.deskNote[id], "err"); }
     await loadHQ(); render(); return true;
   }

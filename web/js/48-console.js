@@ -4,10 +4,11 @@
 // the cutover, screen changes land in Endora and are copied here. This file is Console's own,
 // and it is the only place Console differs:
 //
-//   1. `api` is the one way a screen reaches Core. Two of the old screens' calls are carried
-//      onto the contract (Endora's docs/api/console-v1.md): an answer to a desk item goes to
-//      `/v1/decisions/{id}`, which binds it, applies it once and keeps its stages; HQ's event
-//      poll goes to `/v1/events`, which says when events were pruned.
+//   1. `api` is the one way a screen reaches Core, and the screens call only routes the
+//      contract lists (test/ui-routes.test.mjs holds them to it). `consoleDecide` answers a
+//      desk item through `/v1/decisions/{id}`, which binds it, applies it once and keeps its
+//      stages; HQ's event poll and Activity log read `/v1/events`, which says when events were
+//      pruned.
 //   2. `subscribeToActivity` listens to `/v1/events/stream` with a fetch signed in the header
 //      (never a token in the URL), resumes with `Last-Event-ID`, and drops an event it has
 //      already applied.
@@ -17,7 +18,9 @@
 //      own health check. Music is a link to the Spotify app (the owner's MU1 = b).
 //
 // Function declarations: in one joined script the last declaration of a name is the one used,
-// so these replace the copies above without editing them.
+// so `api`, `subscribeToActivity`, `loadSound`, `viewSound` and the like here replace any copy
+// above. Where the copied screens called a route the contract does not list, the call itself
+// was changed (SOURCE.md names each), so nothing relies on a rewrite.
 
 const CONSOLE = {
   decisions: [],      // the latest answers this browser has seen, newest first
@@ -37,39 +40,42 @@ function consoleRequestKey(id, choice) {
   return CONSOLE.keys[k];
 }
 
-// Where an old screen's call goes under the contract.
-function consoleRoute(method, path, body) {
-  const desk = method === "POST" && /^\/v1\/hq\/desk\/(\d+)$/.exec(path);
-  if (desk) {
-    const id = Number(desk[1]);
-    const choice = (body && body.decision) || "";
-    return {
-      path: `/v1/decisions/${id}`,
-      body: { choice, words: (body && body.answer) || "", request: consoleRequestKey(id, choice), channel: "console" },
-      decision: { id, choice },
-    };
-  }
-  const events = method === "GET" && /^\/v1\/hq\/events(\?[^#]*)?$/.exec(path);
-  if (events) return { path: "/v1/events" + (events[1] || ""), body };
-  return { path, body };
-}
-
 async function api(method, path, body) {
-  const route = consoleRoute(method, path, body);
-  if (route.decision) consoleDecisionSent(route.decision);
-  const headers = signed(route.body !== undefined ? { "content-type": "application/json" } : {});
-  const res = await fetch(route.path, {
+  const headers = signed(body !== undefined ? { "content-type": "application/json" } : {});
+  const res = await fetch(path, {
     method,
     headers,
-    body: route.body !== undefined ? JSON.stringify(route.body) : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   let data = null;
   try { data = await res.json(); } catch (_) {}
   if (res.status === 401) { NEEDS_TOKEN = true; render(); throw new Error("unauthorized"); }
-  if (route.decision) consoleDecisionAnswered(route.decision, res.status, data);
-  if (!res.ok) throw new Error((data && data.error) || ("HTTP " + res.status));
+  if (!res.ok) {
+    const failure = new Error((data && data.error) || ("HTTP " + res.status));
+    failure.status = res.status;
+    failure.data = data;
+    throw failure;
+  }
   NEEDS_TOKEN = false;
   return data;
+}
+
+// An answer to a desk item: `POST /v1/decisions/{id}` with the choice and the owner's words.
+// One request key per item and choice makes a second press the same request, which Core
+// answers with the stored record. The tray shows each stage from what Core sends back.
+async function consoleDecide(id, choice, words) {
+  const item = { id: Number(id), choice: String(choice || "") };
+  consoleDecisionSent(item);
+  try {
+    const data = await api("POST", `/v1/decisions/${item.id}`, {
+      choice: item.choice, words: words || "", request: consoleRequestKey(item.id, item.choice), channel: "console",
+    });
+    consoleDecisionAnswered(item, 200, data);
+    return data;
+  } catch (e) {
+    consoleDecisionAnswered(item, e.status || 502, e.data || { error: e.message });
+    throw e;
+  }
 }
 
 // ---- each answer's stages --------------------------------------------------------------------
@@ -274,10 +280,8 @@ function viewMusic() {
     `<div class="row" style="margin-top:8px"><a class="ghost" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Open Spotify</a></div>`;
 }
 
-// The copied player's calls are never made from Console: the Spotify token stays in Audio.
+// The copied player was removed (45-lab.js): Console makes no Spotify call, and the token stays in Audio.
 async function musicDispatch() { flash("Play music from the Spotify app.", "warn"); }
-async function spotify() { throw new Error("Music is played from the Spotify app."); }
-async function spotifyToken() { throw new Error("Music is played from the Spotify app."); }
 
 async function soundDispatch(verb, noun) {
   if (verb === "console" && noun === "tray") { CONSOLE.decisions = []; consoleTray(); return true; }

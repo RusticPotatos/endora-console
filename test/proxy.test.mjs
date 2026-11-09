@@ -155,7 +155,7 @@ test("the page and its art are served, and nothing beside them", async () => {
   assert.equal(page.status, 200);
   assert.match(await page.text(), /\/app\.js\?v=/);
   const script = await (await fetch(`${base}/app.js`)).text();
-  assert.match(script, /function consoleRoute\(/);
+  assert.match(script, /function consoleDecide\(/);
   assert.equal((await fetch(`${base}/hq-art/CREDITS.txt`)).status, 200);
   assert.equal(await rawGet("/hq-art/../server/app.mjs"), 400);
   assert.equal((await fetch(`${base}/package.json`)).status, 404);

@@ -13,7 +13,15 @@
 const HQ_STUDIO_SCALE = 3;
 const HQ_SAY_SECONDS = 4;
 const HQ_SAY_MOST = 30;
-const HQ_DONE_KINDS = { met_criteria: true, completed_unverified: false };
+// An owner's acceptance (Core's ADR 0149) closes with a verdict, so it counts as one, and is said
+// as what it is: never as met criteria, and never as unverified.
+const HQ_DONE_KINDS = { met_criteria: true, completed_unverified: false, accepted_by_owner: true };
+// How one closing reads in the week's list.
+function hqDoneWord(t) {
+  const why = t.closure && t.closure.why;
+  if (why === "accepted_by_owner") return "Accepted by the owner";
+  return HQ_DONE_KINDS[why] ? "Met its criteria" : "Completed · Not verified";
+}
 const HQ_WEEK_DAYS = 7;
 // The studio's words are in IBM Plex Mono, which HQ already loads: no font of its own.
 const HQ_FONT_8 = '8px "IBM Plex Mono", monospace', HQ_FONT_8B = '600 8px "IBM Plex Mono", monospace', HQ_FONT_7 = '7px "IBM Plex Mono", monospace', HQ_FONT_7S = '600 7px "IBM Plex Mono", monospace';
@@ -518,12 +526,13 @@ function hqShelfRows(now = hqWeekNow()) {
   return rows.slice(0, most - 1).concat({ name: `${rest.length} other subjects`, items: rest.flatMap((r) => r.items), more: true });
 }
 function hqShelfPanel() {
-  const all = hqWeekDone().reverse(), checked = all.filter((t) => HQ_DONE_KINDS[t.closure.why]).length;
+  const all = hqWeekDone().reverse(), accepted = all.filter((t) => t.closure.why === "accepted_by_owner").length;
+  const checked = all.filter((t) => HQ_DONE_KINDS[t.closure.why]).length - accepted;
   const rows = all.map((t) => hqLine(`hq:pick:task:${Number(t.id)}`, `${hqKey(t.id)} ${esc(t.title)}`,
-    `${HQ_DONE_KINDS[t.closure.why] ? "Met its criteria" : "Completed · Not verified"} · ${esc(hqSubjectOf(t) || "no project")} · ${esc(new Date(t.closure.at).toLocaleDateString([], { weekday: "short" }))} ${esc(hqClock(t.closure.at))}`));
+    `${hqDoneWord(t)} · ${esc(hqSubjectOf(t) || "no project")} · ${esc(new Date(t.closure.at).toLocaleDateString([], { weekday: "short" }))} ${esc(hqClock(t.closure.at))}`));
   const list = hqMore("shelf", rows, 8);
   return `<div class="hq-sel">Done this week</div>
-    <p class="hq-who">${all.length ? `${checked} met ${checked === 1 ? "its" : "their"} criteria · ${all.length - checked} completed, not verified` : "Nothing finished in the last 7 days."}</p>
+    <p class="hq-who">${all.length ? `${checked} met ${checked === 1 ? "its" : "their"} criteria · ${accepted} accepted by the owner · ${all.length - checked - accepted} completed, not verified` : "Nothing finished in the last 7 days."}</p>
     ${rows.length ? `<ul class="hq-lines">${list.shown}</ul>${list.more}` : ""}
     <p class="hq-note">A coloured spine on the alcove's shelves is an item that met its criteria; a pale one was closed with nothing checking its evidence. Each row is a subject.</p>`;
 }

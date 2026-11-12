@@ -60,6 +60,15 @@ function hqLoadArt() {
   return HQ_ART_READY;
 }
 
+// How a task's status reads: a completion nothing checked and an owner's acceptance are each said
+// as what they are, apart from each other and from work that met its criteria (Core's ADR 0149).
+function hqStatusWord(t) {
+  const why = t.closure && t.closure.why;
+  if (why === "completed_unverified") return "Completed · Not verified";
+  if (why === "accepted_by_owner") return "Done · Accepted by the owner";
+  return String(t.status).replace("_", " ");
+}
+
 // ---- loading and the stream ------------------------------------------------------------
 
 async function loadHQ() {
@@ -561,7 +570,7 @@ function hqLandings() {
     const t = hqTask(Number(id));
     if (!t || !t.closure || !(t.closure.why in HQ_DONE_KINDS)) continue;
     HQ.fresh[t.id] = 8;
-    if (HQ_DONE_KINDS[t.closure.why] && !l.unverified && l.troubled && l.owner) HQ.recovered[l.owner] = { task: t.id, why: "closed", t: HQ_RECOVERED_SECONDS };
+    if (t.closure.why === "met_criteria" && !l.unverified && l.troubled && l.owner) HQ.recovered[l.owner] = { task: t.id, why: "closed", t: HQ_RECOVERED_SECONDS };
   }
 }
 
@@ -682,7 +691,7 @@ const HQ_DESK_HELP = {
   goal: "Approve starts the team on this goal; Decline drops it.",
   stuck: "Try again sends the work back to the team; Drop it gives up on it.",
   ready_to_merge: "The work is done and checked. Mark merged once you have merged it yourself; Not now leaves it for later.",
-  ready_to_read: "A write-up is ready for you. Mark read once you have read it; Not now keeps it for later.",
+  ready_to_read: "Work in review that nobody reviews, or a write-up, is ready for you. Accept closes it as done by your acceptance; Send it back returns it to its worker (type a note first if you like); Mark read only notes that you read it; Not now keeps it for later.",
   question: "A member is asking you. Type an answer if you like, then Answer & wake sends it and wakes them; Dismiss closes it unanswered.",
   notice: "Only to know of. Seen or Dismiss clears it.",
   approval: "A member wants to run exactly what is shown, once. Approve runs it; Decline runs nothing.",
@@ -702,7 +711,7 @@ const HQ_DESK_HELP = {
 const HQ_DESK_CHOICES = {
   goal: [["approve", "Approve", "ok"], ["decline", "Decline", "no"]], stuck: [["retry", "Try again", "ok"], ["drop", "Drop it", "no"]],
   ready_to_merge: [["merged", "Mark merged", "ok"], ["not_now", "Not now", "no"]],
-  ready_to_read: [["read", "Mark read", "ok"], ["not_now", "Not now", "no"]],
+  ready_to_read: [["accept", "Accept", "ok"], ["send_back", "Send it back", "no"], ["read", "Mark read", "ok"], ["not_now", "Not now", "no"]],
   // A member's question (the team protocol's ask_owner): seeing it wakes the member who
   // asked, to read the task's thread, where the answer typed on the card is written first.
   question: [["seen", "Answer & wake", "ok"], ["dismiss", "Dismiss", "no"]],
@@ -833,6 +842,7 @@ function hqNeed(s, d, help = true) {
       ${d.kind === "approval" ? hqApproval(d.approval, d.serves) : ""}
       ${d.kind === "push" && !hqCanPush(d) && hqBundleOf(d) ? `<div class="hq-row"><button class="hq-btn" data-act="hq:bundle:${d.task}:${esc(hqBundleOf(d))}">Download the bundle</button></div>` : ""}
       ${d.kind === "question" ? `<textarea id="hq-answer-${d.id}" rows="2" placeholder="Your answer, for the task's thread (optional)" aria-label="Your answer"></textarea>` : ""}
+      ${d.kind === "ready_to_read" ? `<textarea id="hq-answer-${d.id}" rows="2" placeholder="A note for the task's thread (optional; sent with Accept or Send it back)" aria-label="Your note"></textarea>` : ""}
       ${d.kind === "project_cap" || d.kind === "project_budget" ? `<input id="hq-answer-${d.id}" inputmode="decimal" placeholder="${d.kind === "project_cap" ? "Dollars a month (empty: as asked)" : "The new cap, in dollars a month"}" aria-label="The cap, in dollars a month" />` : ""}
       ${d.kind === "out_for_day" ? `<input id="hq-answer-${d.id}" inputmode="decimal" placeholder="Dollars for today (empty: as offered)" aria-label="The allowance, in dollars for today" />` : ""}
       ${d.kind === "out_for_day" && hqPoolSpent(s) ? `<div class="hq-row"><button class="hq-btn" data-act="hq:pool:topup:go">Top up the pool first</button></div>` : ""}
@@ -1662,7 +1672,7 @@ function hqSelected() {
   const runner =((HQ.snap && HQ.snap.runs) || []).find((r) => r.task === t.id && r.status === "running");
   const thread = (t.thread || []).slice(-3).map((p) => `<li>${esc(p.author)}${p.unsupported ? ` <span class="hq-unsupported">unsupported</span>` : ""}: ${esc(p.text)}</li>`).join("");
   return `<div class="hq-sel">${hqKey(t.id)} · ${esc(t.title)}</div><dl class="hq-kv">
-    <dt>Status</dt><dd>${t.closure && t.closure.why === "completed_unverified" ? "Completed · Not verified" : esc(String(t.status).replace("_", " "))}${t.gate === true ? " · gate passed" : t.gate === false ? " · gate failed" : ""}</dd>
+    <dt>Status</dt><dd>${esc(hqStatusWord(t))}${t.gate === true ? " · gate passed" : t.gate === false ? " · gate failed" : ""}</dd>
     <dt>Owner</dt><dd>${t.owner ? esc(hqName(t.owner)) : "nobody"}</dd>
     <dt>Project</dt><dd>${hqTaskProject(t)}</dd>
     <dt>Lock</dt><dd>${runner ? "held by R" + runner.id : "free"}</dd>
@@ -1758,7 +1768,7 @@ async function hqDispatch(verb, noun, id, arg) {
     const box = document.getElementById(`hq-answer-${id}`);
     const item = ((HQ.snap && HQ.snap.desk) || []).find((d) => d.id === Number(id));
     const amount = item && (item.kind === "project_cap" || item.kind === "project_budget" || item.kind === "out_for_day");
-    const takesWords = arg === "seen" || amount;
+    const takesWords = arg === "seen" || amount || (item && item.kind === "ready_to_read" && (arg === "accept" || arg === "send_back"));
     const answer = takesWords && box ? box.value.trim() : "";
     if (arg === "answer" && !answer) { flash("Write your answer first.", "warn"); return true; }
     if (arg === "raise" && !answer) { flash("Write the new cap first, in dollars a month.", "warn"); return true; }

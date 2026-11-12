@@ -879,7 +879,7 @@ if (failures.length) {
   if (office.includes("the record for the 7 days starts")) fail("hq: a week the record covers is said to start late");
   if (!office.includes('id="hq-office"')) fail("hq: the office is not drawn");
   for (const act of ["hq:decide:11:approve", "hq:decide:11:decline", "hq:decide:12:retry", "hq:decide:12:drop",
-    "hq:decide:13:merged", "hq:decide:13:not_now", "hq:decide:14:read", "hq:decide:14:not_now",
+    "hq:decide:13:merged", "hq:decide:13:not_now", "hq:decide:14:read", "hq:decide:14:not_now", "hq:decide:14:accept", "hq:decide:14:send_back",
     "hq:decide:15:seen", "hq:decide:15:dismiss", "hq:decide:16:seen", "hq:decide:16:dismiss", "hq:stop",
     // The owner's switches for the team's contracts (ADR 0106): each offers the other way.
     "hq:contracts:all:off", "hq:contracts:restart_container:on",
@@ -978,6 +978,40 @@ if (failures.length) {
     runInContext("delete HQ.more.digest12;", context);
     if (!refusedCard.includes("Couldn&#39;t decide: it was not tried again: the kill switch is on") && !refusedCard.includes("Couldn't decide: it was not tried again: the kill switch is on")) fail("hq: a refused desk decision is not said on its card");
     runInContext("HQ.deskNote = {}; clearInterval(HQ.polling); HQ.polling = null; HQ_ART_READY = null;", context);
+  }
+  // Accept and Send it back post the choice and the owner's note through the decisions call, and a
+  // refusal (a stale card is 409, a gate not passed 400) is Core's own message on the card.
+  {
+    const sent = [];
+    const realFetch = context.fetch;
+    const snapshot = JSON.parse(runInContext("JSON.stringify(HQ.snap)", context));
+    let refuse = null;
+    context.fetch = (path, opts = {}) => {
+      sent.push([String(path), opts.method, opts.body]);
+      const decided = String(path).includes("/v1/decisions/");
+      return Promise.resolve({ ok: !(decided && refuse), status: decided && refuse ? refuse.status : 200,
+        json: async () => (decided && refuse ? { error: refuse.error } : snapshot) });
+    };
+    runInContext("HQ_ART_READY = Promise.resolve();", context);
+    const keepGet = context.document.getElementById;
+    context.document.getElementById = (id) => (id === "hq-answer-14" ? { value: "  looks right to me  " } : keepGet(id));
+    await runInContext('dispatch("hq:decide:14:accept")', context);
+    const accepted = sent.find(([path]) => path === "/v1/decisions/14");
+    if (!accepted || accepted[1] !== "POST" || JSON.parse(accepted[2]).choice !== "accept" || JSON.parse(accepted[2]).words !== "looks right to me") fail(`hq: Accept does not post the choice and the owner's note: ${JSON.stringify(sent)}`);
+    sent.length = 0;
+    await runInContext('dispatch("hq:decide:14:send_back")', context);
+    const back = sent.find(([path]) => path === "/v1/decisions/14");
+    if (!back || JSON.parse(back[2]).choice !== "send_back" || JSON.parse(back[2]).words !== "looks right to me") fail(`hq: Send it back does not post the choice and the owner's note: ${JSON.stringify(sent)}`);
+    for (const [status, error] of [[409, "this task is over"], [400, "a task does not go from doing to done"]]) {
+      refuse = { status, error };
+      runInContext("HQ.deskNote = {}; HQ.more.digest14 = true; HQ.more.desk14 = true;", context);
+      await runInContext('dispatch("hq:decide:14:accept")', context);
+      const html = runInContext("viewHQ()", context);
+      if (!html.includes(`Couldn&#39;t decide: ${error}`) && !html.includes(`Couldn't decide: ${error}`)) fail(`hq: a refused acceptance (${status}) does not say Core's message on the card: ${error}`);
+    }
+    context.fetch = realFetch; context.document.getElementById = keepGet;
+    runInContext("HQ.deskNote = {}; delete HQ.more.digest14; delete HQ.more.desk14; clearInterval(HQ.polling); HQ.polling = null; HQ_ART_READY = null;", context);
+    console.log("hq: Accept and Send it back post through the decisions call with the note, and a refusal is Core's message on the card");
   }
   // The activity log: a post is told whole (long ones folded behind "more", opened in place).
   // Activity is a tab of its own (the owner, 31 Oct): the latest twenty and "Show more", which
@@ -1602,13 +1636,16 @@ if (failures.length) {
       const rows = runInContext(`(() => { const day = 86400000, now = 30 * day; HQ.weekNow = now;
         HQ.snap.projects.push({ id: 21, goal: 1, title: "Set 4 solo (Sol): lark", status: "active" });
         const closed = (id, why, ago) => ({ id, goal: 1, project: 21, title: "Done <b>" + id + "</b>", status: "done", owner: 3, brief: true, closure: { why, by: "endora", at: now - ago } });
-        HQ.snap.tasks.push(closed(40, "met_criteria", day), closed(41, "completed_unverified", day), closed(42, "superseded", day), closed(43, "met_criteria", 8 * day));
+        HQ.snap.tasks.push(closed(40, "met_criteria", day), closed(41, "completed_unverified", day), closed(42, "superseded", day), closed(43, "met_criteria", 8 * day), closed(44, "accepted_by_owner", day));
         return hqShelfRows(now).map((r) => r.name + ":" + r.items.map((t) => t.id).join("+")); })()`, context);
-      if (rows.join() !== "lark:40+41") fail(`hq: the week's shelf does not hold the week's checked and unverified closings by subject: ${rows}`);
+      if (rows.join() !== "lark:40+41+44") fail(`hq: the week's shelf does not hold the week's checked and unverified closings by subject: ${rows}`);
       runInContext(`HQ.selected = { type: "shelf", id: 0 };`, context);
       const list = runInContext("hqSelected()", context);
-      for (const want of ["Done this week", 'data-act="hq:pick:task:40"', "Met its criteria", "Completed · Not verified", "Done &lt;b&gt;40&lt;/b&gt;"]) if (!list.includes(want)) fail(`hq: the week's list lacks ${want}`);
+      for (const want of ["Done this week", 'data-act="hq:pick:task:40"', "Met its criteria", "Completed · Not verified", "Accepted by the owner", "Done &lt;b&gt;40&lt;/b&gt;"]) if (!list.includes(want)) fail(`hq: the week's list lacks ${want}`);
       const row41 = (list.match(/<li[^>]*>(?:(?!<\/li>).)*pick:task:41(?:(?!<\/li>).)*<\/li>/s) || [""])[0];
+      const row44 = (list.match(/<li[^>]*>(?:(?!<\/li>).)*pick:task:44(?:(?!<\/li>).)*<\/li>/s) || [""])[0];
+      if (!row44 || !/Accepted by the owner/.test(row44) || /Met its criteria|Not verified/.test(row44) || /Accepted/.test(row41)) fail(`hq: the week's list does not say an owner's acceptance apart from met criteria and unverified: ${row44}`);
+      if (!/1 met their criteria|1 met its criteria/.test(list) || !/1 accepted by the owner/.test(list) || !/1 completed, not verified/.test(list)) fail("hq: the week's list does not count met, accepted and unverified apart");
       if (!row41 || /Met its criteria/.test(row41) || list.includes("pick:task:42") || list.includes("pick:task:43")) fail(`hq: the week's list reads an unverified closing as checked, or holds work it should not: ${row41}`);
       const live = runInContext(`(() => { const close = (id, why, unverified) => { HQ.snap.tasks.push({ id, goal: 1, project: 21, title: "t", status: "done", owner: 3, brief: true, closure: { why, by: "endora", at: HQ.weekNow } });
           hqTell({ id: 900 + id, at: HQ.weekNow, kind: "task.changed", data: { task: id, goal: 1, owner: 3, status: "done", ...(unverified ? { unverified: true } : {}) } }, true); hqLandings(); };
@@ -1691,6 +1728,31 @@ if (failures.length) {
         return out;
       })()`, context);
       if (marks.some((ok) => !ok)) fail(`hq: a worker's sign does not follow the record of its problems and recoveries: ${marks}`);
+
+      // Core's ADR 0149: work in review waits on the owner's card with accept and send back, and an
+      // owner's acceptance is shown apart from a completion nothing checked and from met criteria.
+      const accepting = runInContext(`(() => {
+        const choices = HQ_DESK_CHOICES.ready_to_read.map((c) => c[0]);
+        const task = (why) => ({ id: 90, goal: 1, title: "Settle it", status: "done", owner: 3, brief: false, thread: [], branches: [], closure: { why, by: "owner", at: 1 } });
+        const said = (why) => hqStatusWord(task(why));
+        return [choices.includes("accept"), choices.includes("send_back"), choices.includes("read"), choices.includes("not_now"),
+          HQ_DESK_HELP.ready_to_read.includes("Accept"), HQ_DESK_HELP.ready_to_read.includes("Send it back"),
+          said("accepted_by_owner") === "Done · Accepted by the owner", said("completed_unverified") === "Completed · Not verified",
+          said("met_criteria") === "done", HQ_DONE_KINDS.accepted_by_owner === true, HQ_DONE_KINDS.completed_unverified === false];
+      })()`, context);
+      if (accepting.some((ok) => !ok)) fail(`hq: the ready-to-read card lacks accept and send back, or an acceptance is not shown apart from unverified completion: ${accepting}`);
+      // The card carries a note box for the thread, and the selected task says how it closed.
+      const card = runInContext(`(() => { HQ.selected = { type: "task", id: 7 }; const t = HQ.snap.tasks.find((x) => x.id === 7); const was = [t.status, t.closure];
+        t.status = "done"; t.closure = { why: "accepted_by_owner", by: "owner", at: 1 }; const a = hqSelected();
+        t.closure = { why: "completed_unverified", by: "endora", at: 1 }; const u = hqSelected();
+        [t.status, t.closure] = was; HQ.selected = null;
+        return [a.includes("Done · Accepted by the owner"), !a.includes("Not verified"), u.includes("Completed · Not verified"), !u.includes("Accepted")]; })()`, context);
+      if (card.some((ok) => !ok)) fail(`hq: the selected task does not say an acceptance and an unverified completion apart: ${card}`);
+      if (!runInContext("viewHQ()", context).includes('id="hq-answer-14"')) fail("hq: the ready-to-read card has no note box for accept or send back");
+      // An acceptance is a verdict, not a recovery "met its criteria": it shines on the shelf, and says nothing of criteria.
+      const landed = runInContext(`(() => { HQ.snap.tasks.push({ id: 67, goal: 1, title: "Accepted", status: "done", owner: 3, brief: false, thread: [], branches: [], closure: { why: "accepted_by_owner", by: "owner", at: 1 } });
+        HQ.recovered = {}; HQ.fresh = {}; HQ.landing[67] = { troubled: true, owner: 3 }; hqLandings(); return [!!HQ.fresh[67], !HQ.recovered[3]]; })()`, context);
+      if (landed.some((ok) => !ok)) fail(`hq: an acceptance is read as a recovery by meeting criteria, or does not shine on the shelf: ${landed}`);
     } finally {
       runInContext(`HQ.snap = JSON.parse(${JSON.stringify(saved)}); HQ.selected = null; HQ.fresh = {}; HQ.weekNow = 0; HQ.landing = {}; HQ.recovered = {}; HQ.log = JSON.parse(${JSON.stringify(savedLog)});`, context);
     }
@@ -1812,7 +1874,7 @@ if (failures.length) {
     console.log("hq density at rest: " + PLACES.map((id) => `${id} ${JSON.stringify(density(placeOf(home, id)))}`).join("; "));
     // The map's own count of its members and items is the record's, not a budget; its decisions
     // are the old Work tab's desk and digest (27 buttons, 42 rows), and the rest lost Work's share.
-    const MOST_IN_A_PLACE = { map: { buttons: 28, rows: 45 }, work: { buttons: 4, rows: 6 }, manage: { buttons: 27, rows: 32 }, health: { buttons: 14, rows: 22 },
+    const MOST_IN_A_PLACE = { map: { buttons: 30, rows: 46 }, work: { buttons: 4, rows: 6 }, manage: { buttons: 27, rows: 32 }, health: { buttons: 14, rows: 22 },
       activity: { buttons: 11, rows: 23 }, chess: { buttons: 12, rows: 30 }, office: { buttons: 2, rows: 6 } };
     for (const [id, most] of Object.entries(MOST_IN_A_PLACE)) {
       const d = density(placeOf(home, id));

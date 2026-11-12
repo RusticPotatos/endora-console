@@ -1,10 +1,23 @@
 name: ci
 
+# NOTHING IS PUBLISHED AUTOMATICALLY. Pushing to main, pushing a tag or merging a pull request
+# builds and tests the image but never logs in to the registry, never writes a package, never
+# moves `latest` and never adds a tag. The one publishing job runs only when a person starts this
+# workflow by hand (workflow_dispatch) with `publish` ticked, from main or a `vX.Y.Z` tag, in this
+# repository, and only after the owner has set the repository variable
+# ENDORA_CONSOLE_IMAGE_PUBLISH to `enabled`. README.md ("Publish the image") has the steps;
+# scripts/test-image-workflow.py tests these conditions on every push (npm test).
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the image to ghcr.io (needs the repository variable ENDORA_CONSOLE_IMAGE_PUBLISH=enabled; run from main or a vX.Y.Z tag)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,6 +29,8 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,30 +51,15 @@ jobs:
       - name: Whitespace
         run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD -- . ':!web/js' web/js/48-console.js
 
-  # Built and smoke-tested on every change; on main and on a tag also pushed to the public
-  # GitHub Container Registry with the workflow's own token.
+  # Built and smoke-tested on every change. Loaded, never pushed, and no package access.
   image:
     needs: check
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/rusticpotatos/endora-console
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=long
-            type=semver,pattern={{version}}
-          labels: |
-            org.opencontainers.image.title=endora-console
-            org.opencontainers.image.description=Endora Console, the screens for Endora Core
-            org.opencontainers.image.licenses=Apache-2.0
       - name: Build
         uses: docker/build-push-action@v6
         with:
@@ -72,15 +72,46 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Smoke test
         run: sh scripts/smoke.sh local/endora-console:test
+
+  # The only job that can write a package. Every condition must hold: a push, a tag, a pull
+  # request and a dispatch without `publish` all fail the first two.
+  publish:
+    name: publish (amd64 + arm64)
+    needs: image
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish &&
+      vars.ENDORA_CONSOLE_IMAGE_PUBLISH == 'enabled' &&
+      github.repository == 'RusticPotatos/endora-console' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - name: Sign in to GHCR
-        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # `sha-<commit>` always; `X.Y.Z` from a vX.Y.Z tag; never `latest` (flavor latest=false).
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/rusticpotatos/endora-console
+          tags: |
+            type=sha,format=long
+            type=semver,pattern={{version}}
+          flavor: |
+            latest=false
+          labels: |
+            org.opencontainers.image.title=endora-console
+            org.opencontainers.image.description=Endora Console, the screens for Endora Core
+            org.opencontainers.image.licenses=Apache-2.0
       - name: Push
-        if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .

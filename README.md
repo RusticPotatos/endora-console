@@ -62,6 +62,17 @@ Console keeps no data, so an upgrade is pulling a newer tag and `docker compose 
 rollback is setting `CONSOLE_TAG` to the previous `sha-…` tag. Core's contract is additive within
 v1, so a newer Core works with an older Console. Back up Core, not Console.
 
+### Publish the image
+
+Nothing publishes the image automatically. A push to `main`, a `v*` tag or a pull request
+builds and smoke-tests it (`.github/workflows/ci.yml`, job `image`) but never signs in to the
+registry or writes a package. The `publish` job runs only when the owner starts the workflow
+by hand (Actions → ci → Run workflow, from `main` or a `vX.Y.Z` tag) with `publish` ticked, and
+only while the repository variable `ENDORA_CONSOLE_IMAGE_PUBLISH` is `enabled` (it is unset
+until the owner sets it). It pushes `sha-<commit>`, and `X.Y.Z` from a version tag; it never
+moves `latest`, so pin a `sha-…` tag. `npm test` runs `scripts/test-image-workflow.py`, which
+checks these conditions against the workflow.
+
 ## Develop
 
 Node 22, no dependencies.

@@ -33,6 +33,17 @@ Until the cutover, HQ screen changes land in Endora first and are copied here (t
 freeze). To copy them: replace the files under `web/` (but `48-console.js`), reapply the three
 edits above, run `npm test` and `npm run check`, and record the new commit above.
 
+## Ported ahead of the copy: the owner's acceptance (Core's ADR 0149)
+
+Core's `feat/reviewed-completion` (commits `73610b7` and `a83116d`) adds `accept` and `send_back` on a
+`ready_to_read` card, the closure `accepted_by_owner`, and a per-project `acceptance` policy. Its screen
+change is hand-ported here to `web/js/47-hq.js` and `web/js/47f-hq-studio.js`, because the copied
+screens predate it; a later copy from Endora replaces them with the same behavior. Beyond Core's own
+change, Console also keeps an acceptance out of the "closed as met its criteria after a problem"
+recovery sign, and names it apart from met criteria in the week's list. The contract is unchanged:
+`docs/api/console-v1.json` is byte for byte what it was (only its prose, `console-v1.md`, grew), so
+`contract/` is not re-pinned. The project form sends no `solo`, so it sends no `acceptance` either.
+
 ## For Endora's ADR 0145, to apply there later
 
 The owner decided MU1 on 7 Nov, after ADR 0145 was written on Endora's step-2 branch. Its

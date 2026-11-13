@@ -1761,6 +1761,33 @@ if (failures.length) {
           said("met_criteria") === "done", HQ_DONE_KINDS.accepted_by_owner === true, HQ_DONE_KINDS.completed_unverified === false];
       })()`, context);
       if (accepting.some((ok) => !ok)) fail(`hq: the ready-to-read card lacks accept and send back, or an acceptance is not shown apart from unverified completion: ${accepting}`);
+
+      // The ready-to-read card says which done-criteria have evidence cited and which have none,
+      // from the task evidence the snapshot already carries; a task without evidence is as before.
+      const criteria = runInContext(`(() => {
+        const card = (task) => hqNeed({ tasks: task ? [task] : [], desk: [] }, { id: 77, kind: "ready_to_read", task: 90, text: "Ready to read: Settle it" });
+        const base = { id: 90, goal: 1, title: "Settle it", status: "in_review", owner: 3, brief: false, thread: [], branches: [] };
+        const withEvidence = (criteriaList, cited) => Object.assign({}, base, { evidence: { criteria: criteriaList, cited } });
+        const two = card(withEvidence([{ text: "The role passes lint" }, { text: "The docs name the new setting" }],
+          [{ stage: "submitted", member: 3, criterion: 1, at: 1, refs: [{ ref: "r5" }], needs_recheck: false }]));
+        const hostile = card(withEvidence([{ text: "It says <b>done</b> & \\"ok\\"" }], []));
+        const bare = card(base), none = card(withEvidence([], [])), gone = card(null);
+        const other = hqNeed({ tasks: [withEvidence([{ text: "The role passes lint" }], [])], desk: [] }, { id: 78, kind: "needs_owner", task: 90, text: "needs a value" });
+        const recheck = card(withEvidence([{ text: "Passes" }], [{ stage: "tested", member: 4, criterion: 1, at: 2, refs: [], needs_recheck: true }]));
+        return { two, hostile, bare, none, gone, other, recheck };
+      })()`, context);
+      const crow = (html, text) => (html.match(new RegExp(`<li[^>]*>(?:(?!</li>).)*${text}(?:(?!</li>).)*</li>`)) || [""])[0];
+      if (!crow(criteria.two, "The role passes lint").includes("submitted")) fail("hq: a ready-to-read card does not say a cited criterion was cited, and at which stage");
+      if (crow(criteria.two, "The role passes lint").includes("No evidence yet")) fail("hq: a ready-to-read card says a cited criterion has no evidence");
+      if (!crow(criteria.two, "The docs name the new setting").includes("No evidence yet")) fail("hq: a ready-to-read card does not say a criterion with nothing cited has no evidence");
+      if (criteria.hostile.includes("<b>done</b>") || !criteria.hostile.includes("&lt;b&gt;done&lt;/b&gt;")) fail("hq: a criterion's text is not escaped on the ready-to-read card");
+      if (!criteria.recheck.includes("needs re-check")) fail("hq: a ready-to-read card hides that a pass needs re-check");
+      for (const key of ["bare", "none", "gone"]) {
+        if (criteria[key].includes("hq-criteria") || criteria[key].includes("No evidence yet")) fail(`hq: a ready-to-read card of a task without evidence (${key}) shows criteria`);
+      }
+      if (criteria.bare !== criteria.none) fail("hq: a card for a task with an empty evidence differs from one with none");
+      if (criteria.other.includes("hq-criteria")) fail("hq: a card that is not ready-to-read shows criteria");
+      if (criteria.two.indexOf("hq-criteria") < 0 || criteria.two.indexOf("hq-criteria") > criteria.two.indexOf("hq:decide:77:accept")) fail("hq: the criteria are not above the Accept button");
       // The card carries a note box for the thread, and the selected task says how it closed.
       const card = runInContext(`(() => { HQ.selected = { type: "task", id: 7 }; const t = HQ.snap.tasks.find((x) => x.id === 7); const was = [t.status, t.closure];
         t.status = "done"; t.closure = { why: "accepted_by_owner", by: "owner", at: 1 }; const a = hqSelected();
@@ -1894,7 +1921,9 @@ if (failures.length) {
     console.log("hq density at rest: " + PLACES.map((id) => `${id} ${JSON.stringify(density(placeOf(home, id)))}`).join("; "));
     // The map's own count of its members and items is the record's, not a budget; its decisions
     // are the old Work tab's desk and digest (27 buttons, 42 rows), and the rest lost Work's share.
-    const MOST_IN_A_PLACE = { map: { buttons: 30, rows: 46 }, work: { buttons: 4, rows: 6 }, manage: { buttons: 27, rows: 32 }, health: { buttons: 14, rows: 22 },
+    // The ready-to-read card says its task's done-criteria and what was cited for each: the
+    // fixture's two criteria and their heading are three rows more on the map (46 became 49).
+    const MOST_IN_A_PLACE = { map: { buttons: 30, rows: 49 }, work: { buttons: 4, rows: 6 }, manage: { buttons: 27, rows: 32 }, health: { buttons: 14, rows: 22 },
       activity: { buttons: 11, rows: 23 }, chess: { buttons: 12, rows: 30 }, office: { buttons: 2, rows: 6 } };
     for (const [id, most] of Object.entries(MOST_IN_A_PLACE)) {
       const d = density(placeOf(home, id));
@@ -1970,6 +1999,18 @@ if (failures.length) {
         if (!runInContext(`typeof HQ_DESK_HELP[${JSON.stringify(kind)}] === "string" && HQ_DESK_HELP[${JSON.stringify(kind)}].length > 20`, context)) fail(`hq: a ${kind} card has no help line`);
       }
       if (runInContext(`hqDeskChoices({ kind: "privacy" }).map((c) => c[0]).join()`, context) !== "send_back,push_anyway") fail("hq: a privacy card does not offer Send it back and Push it anyway");
+      // A needs-owner card says what each button does; the decisions the node is sent do not change.
+      {
+        const needs = JSON.parse(runInContext(`JSON.stringify(hqDeskChoices({ kind: "needs_owner" }).map((c) => c.slice(0, 2)))`, context));
+        if (JSON.stringify(needs) !== JSON.stringify([["seen", "I've set it"], ["dismiss", "Not needed"]])) fail(`hq: a needs-owner card does not offer "I've set it" (seen) and "Not needed" (dismiss): ${JSON.stringify(needs)}`);
+        const card = runInContext(`hqNeed({ tasks: [], desk: [] }, { id: 61, kind: "needs_owner", task: 0, text: "needs a value" })`, context);
+        for (const act of ["hq:decide:61:seen", "hq:decide:61:dismiss"]) if (!card.includes(`data-act="${act}"`)) fail(`hq: a needs-owner card no longer posts ${act}`);
+        if (!card.includes("I&#39;ve set it") && !card.includes("I've set it")) fail("hq: a needs-owner card does not show the I've set it button");
+        if (/>Done</.test(card) || />Dismiss</.test(card)) fail("hq: a needs-owner card still shows Done or Dismiss");
+        const help = runInContext(`HQ_DESK_HELP.needs_owner`, context);
+        if (!help.includes("Not needed") || !/closes the request without anything being set/.test(help) || !help.includes("I've set it")) fail(`hq: the needs-owner help does not say what each button does: ${help}`);
+        if (/Done|Dismiss/.test(help)) fail(`hq: the needs-owner help names buttons that are gone: ${help}`);
+      }
     }
     if (!tabs.includes('<span class="hq-wide">Pool </span><span class="hq-spent">$0.00 spent · </span>$1.93 left')) fail("hq: no chip for today's pool");
     for (const mac of [{ why: "on battery" }, { why: "owner active" }, { why: "not heard from" }, { why: "on battery", busy: true }]) {

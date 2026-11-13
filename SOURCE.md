@@ -55,6 +55,19 @@ when it is stale; `never` is quiet unless turns wait. Several runners share one 
 one. The contract is unchanged, so `contract/` is not re-pinned. The next full copy from Endora carries
 the same change and replaces these lines.
 
+## Ported ahead of the copy: the desk cards' clarity (Core's `feat/desk-card-clarity`)
+
+Core commit `42588d5` makes two JS-only changes to `47-hq.js`, hand-ported here with its check blocks in
+`scripts/check-console.mjs`: the `ready_to_read` card shows its task's done-criteria and what was cited
+for each (`hqCriteriaBrief`, reusing the `task.evidence` the snapshot carries for open work, with
+`HQ_STAGE` hoisted out of `hqEvidence`), and the `needs_owner` card's buttons read "I've set it" (`seen`)
+and "Not needed" (`dismiss`), with its help line saying what each does. The decisions sent are unchanged
+and the contract is not touched. The card's sentence from the node ("then mark this seen") is Core's
+and is unchanged. The map's row budget in the density check went from 46 to 49 for the fixture's
+criteria. Separately, and Console only (`server/app.mjs` has no Core counterpart): `originRefusal` makes
+the 403 for a change from another address name the address the Console expects and the one the change
+came from. The next full copy from Endora carries the `47-hq.js` change and replaces these lines.
+
 ## For Endora's ADR 0145, to apply there later
 
 The owner decided MU1 on 7 Nov, after ADR 0145 was written on Endora's step-2 branch. Its

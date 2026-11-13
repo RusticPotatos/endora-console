@@ -321,10 +321,11 @@ function hqClock(at) { return new Date(at).toLocaleTimeString([], { hour: "2-dig
 // What done means for a task, and what was cited for each criterion at each stage (ADR 0114):
 // every receipt with its tool, its time and the start of what it gave back. All of it a model
 // or a tool wrote, so all of it text.
+const HQ_STAGE = { submitted: "submitted", tested: "the tester passed it", accepted: "the lead accepted it", closed: "closed" };
 function hqEvidence(t) {
   const ev = t.evidence || {}, crit = ev.criteria || [], cited = ev.cited || [];
   if (!crit.length && !cited.length) return "";
-  const stage = { submitted: "submitted", tested: "the tester passed it", accepted: "the lead accepted it", closed: "closed" };
+  const stage = HQ_STAGE;
   const refs = (c) => (c.refs || []).map((r) => `<li>${esc(r.ref)}${r.tool ? ` · ${esc(r.tool)}` : ""}${r.at ? ` · ${esc(hqClock(r.at))}` : ""}${r.ok === false ? " · refused" : ""}${r.excerpt ? `: ${esc(r.excerpt)}` : ""}</li>`).join("");
   const rows = (n) => cited.filter((c) => c.criterion === n)
     .map((c) => `<li>${esc(stage[c.stage] || c.stage)}, ${esc(hqName(c.member))}${c.needs_recheck ? " · needs re-check: the criteria changed since" : ""}<ul>${refs(c)}</ul></li>`).join("");
@@ -335,6 +336,21 @@ function hqEvidence(t) {
   const passed = !tested.length ? "Tester's pass: not yet."
     : tested[tested.length - 1].needs_recheck ? "Tester's pass: needs re-check (the criteria changed since); it does not count." : "Tester's pass: given.";
   return `<div class="hq-evidence"><h3>What done means</h3><ul>${items}</ul><p class="hq-who">${passed}</p></div>`;
+}
+
+// The short form of the same record, for the card of work ready to read: each done-criterion and
+// whether anything was cited for it, so the owner sees what was shown before accepting. Citing is
+// not proof: the receipts are in the task. "" for a task with no criteria in the snapshot.
+function hqCriteriaBrief(t) {
+  const ev = (t && t.evidence) || {}, crit = ev.criteria || [], cited = ev.cited || [];
+  if (!crit.length) return "";
+  const rows = crit.map((c, i) => {
+    const mine = cited.filter((x) => x.criterion === i + 1);
+    const stages = [...new Set(mine.map((x) => HQ_STAGE[x.stage] || x.stage))].map(esc).join(", ");
+    const said = mine.length ? `cited: ${stages}${mine.some((x) => x.needs_recheck) ? " · needs re-check: the criteria changed since" : ""}` : "No evidence yet.";
+    return `<li><b>${esc(c.text)}</b> · ${mine.length ? said : `<span class="hq-empty">${said}</span>`}</li>`;
+  }).join("");
+  return `<div class="hq-evidence hq-criteria"><h3>Done means</h3><ul>${rows}</ul></div>`;
 }
 
 // The turns that ended last on a task, or of a member, with what each came to (ADR 0114): in
@@ -704,7 +720,7 @@ const HQ_DESK_HELP = {
   tripwire: "The team started far more turns in ten minutes than real work does, so HQ stopped it. Resume lets it work again; Seen leaves it stopped for you to look first. The activity log shows what they were doing.",
   push: "Push it sends the accepted branch to your fork; Decline does not. Without a push key on the node, download the bundle and push it yourself.",
   privacy: "The privacy scan found something personal-looking in an accepted branch, so nothing was pushed. Send it back has the team take it out; Push it anyway pushes it as it is, if what was found is not yours.",
-  needs_owner: "An accepted change needs something from you before it is deployed, such as a vault value it now reads. Done once you have set it; Dismiss clears it.",
+  needs_owner: "An accepted change needs something from you before it is deployed, such as a vault value it now reads. I've set it records that you set it; Not needed closes the request without anything being set.",
 };
 
 // The choices each kind of desk item offers: [decision, label, style].
@@ -742,7 +758,7 @@ const HQ_DESK_CHOICES = {
   // Accepted work without a card (ADR 0115, amended 2026-10-31): a branch the privacy scan
   // held, and a change that needs something of the owner.
   privacy: [["send_back", "Send it back", "ok"], ["push_anyway", "Push it anyway", "no"]],
-  needs_owner: [["seen", "Done", "ok"], ["dismiss", "Dismiss", "no"]],
+  needs_owner: [["seen", "I've set it", "ok"], ["dismiss", "Not needed", "no"]],
 };
 
 function hqDeskChoices(d) {
@@ -855,6 +871,7 @@ function hqNeed(s, d, help = true) {
   const t = d.task ? ((s.tasks || []).find((x) => x.id === d.task) || null) : null;
   const title = t && t.title ? `<strong class="hq-need-title">${hqKey(t.id)} ${esc(t.title)}</strong>` : "";
   return `<div class="hq-need ${esc(d.kind)}">${title}${hqClamp(`need${d.id}`, d.text)}
+      ${d.kind === "ready_to_read" ? hqCriteriaBrief(t) : ""}
       <p class="hq-who">${esc(String(d.kind).replace(/_/g, " "))}${d.task ? ` · ${hqKeyLink(d.task)}` : ""}${(d.also || []).length ? ` · also on ${d.also.map((t) => hqKeyLink(Number(t))).join(", ")}: one answer reaches each` : ""}${d.project ? ` · project ${esc(hqProjectTitle(d.project))}` : ""}</p>
       ${help && HQ_DESK_HELP[d.kind] ? `<p class="hq-help">${esc(HQ_DESK_HELP[d.kind])}</p>` : ""}
       ${HQ.deskNote[d.id] ? `<p class="hq-who hq-refused" role="alert">${esc(HQ.deskNote[d.id])}</p>` : ""}

@@ -143,6 +143,22 @@ export function sameOrigin(req, config, secure) {
   return !!host && origin === `${secure ? "https" : "http"}://${host}`;
 }
 
+/** What a refused change tells the owner: the address the Console expects and the one the change came from.
+ *  Both are shown only when they are plain web addresses, since a request's headers are not trusted text. */
+export function originRefusal(req, config, secure) {
+  const plain = (v) => (typeof v === "string" && /^https?:\/\/[A-Za-z0-9.:\[\]-]{1,200}$/.test(v) ? v : "");
+  const host = String(req.headers.host || "");
+  const expected = config.origins.length
+    ? config.origins.map(plain).filter(Boolean).join(" or ")
+    : plain(`${secure ? "https" : "http"}://${host}`);
+  const used = plain(req.headers.origin);
+  const from = !req.headers.origin ? "it named no Origin address" : used ? `it came from ${used}` : "it came from an address that is not a web address";
+  const site = req.headers["sec-fetch-site"];
+  const note = used && used === expected && site && site !== "same-origin" ? " (the browser marked it as sent from another site)" : "";
+  const open = expected ? ` Open the Console at ${expected} and try again.` : "";
+  return `a change must come from this Console's own page: ${expected ? `this Console expects ${expected}, but ` : ""}${from}${note}.${open}`;
+}
+
 export function createConsole(config, { contract = loadContract() } = {}) {
   const script = joinScript();
   const index = readFileSync(resolve(WEB, "index.html"), "utf8")
@@ -250,7 +266,7 @@ export function createConsole(config, { contract = loadContract() } = {}) {
     const route = match(contract, req.method, path);
     if (!route) return send(res, 404, { error: "Console does not pass that on: it is not in the Core contract" });
     if (req.method !== "GET") {
-      if (!sameOrigin(req, config, secure)) return send(res, 403, { error: "a change must come from this Console's own page" });
+      if (!sameOrigin(req, config, secure)) return send(res, 403, { error: originRefusal(req, config, secure) });
       const type = String(req.headers["content-type"] || "");
       const length = Number(req.headers["content-length"] || 0);
       if ((length > 0 || req.headers["transfer-encoding"]) && !/^application\/json\b/i.test(type)) {

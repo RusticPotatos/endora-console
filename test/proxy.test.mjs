@@ -2,7 +2,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { createConsole, configFrom } from "../server/app.mjs";
+import { createConsole, configFrom, originRefusal } from "../server/app.mjs";
 
 // A pretend Core: records every request it is sent and answers as Core does.
 const seen = [];
@@ -107,6 +107,17 @@ test("a change must come from this Console's own page, as JSON", async () => {
   assert.equal((await post({ origin: "https://elsewhere.example.com", "content-type": "application/json" })).status, 403);
   assert.equal((await post(same({ "sec-fetch-site": "cross-site", "content-type": "application/json" }))).status, 403);
   assert.equal((await post(same({ "content-type": "text/plain" }))).status, 415);
+  // The refusal says which address the Console expects and which one the change came from.
+  const wrong = await post({ origin: "http://192.168.1.10:8080", "content-type": "application/json" });
+  const body = await wrong.json();
+  assert.equal(wrong.status, 403);
+  assert.match(body.error, /a change must come from this Console's own page/, "the old meaning stays");
+  assert.ok(body.error.includes(base), `names the expected address: ${body.error}`);
+  assert.ok(body.error.includes("http://192.168.1.10:8080"), `names the address used: ${body.error}`);
+  const none = await (await post({ "content-type": "application/json" })).json();
+  assert.match(none.error, /no Origin/i, "says when the change named no address");
+  const odd = await (await post({ origin: "javascript:alert(1)<b>", "content-type": "application/json" })).json();
+  assert.ok(!odd.error.includes("<b>") && !odd.error.includes("javascript:"), `an odd Origin is not echoed: ${odd.error}`);
   assert.equal(sent(), before, "none reached Core");
   const ok = await post(same({ "content-type": "application/json", authorization: "Bearer s" }), '{"why":"fixture"}');
   assert.equal(ok.status, 200);
@@ -166,4 +177,14 @@ test("unsafe configuration is refused at start", () => {
   assert.throws(() => configFrom({ CORE_URL: "http://core:8443/v1/hq" }), /CORE_URL/);
   assert.throws(() => configFrom({ CORE_URL: "http://core", AUDIO_PUBLIC_URL: "javascript:alert(1)" }), /AUDIO_PUBLIC_URL/);
   assert.throws(() => configFrom({ CORE_URL: "http://core", CONSOLE_ORIGIN: "https://a.example.com/path" }), /CONSOLE_ORIGIN/);
+});
+
+test("the refusal names every configured address, and does not echo what is not an address", () => {
+  const config = configFrom({ CORE_URL: "http://127.0.0.1:1", CONSOLE_ORIGIN: "https://console.example.com, http://192.168.1.10:8080" });
+  const text = originRefusal({ headers: { origin: "https://elsewhere.example.com" } }, config, false);
+  assert.match(text, /expects https:\/\/console\.example\.com or http:\/\/192\.168\.1\.10:8080/);
+  assert.match(text, /came from https:\/\/elsewhere\.example\.com/);
+  const hostile = originRefusal({ headers: { origin: "https://a.example.com\"><script>", host: "x<b>" } }, configFrom({ CORE_URL: "http://127.0.0.1:1" }), true);
+  assert.ok(!/[<>"]/.test(hostile.replace("Console's", "")), hostile);
+  assert.match(originRefusal({ headers: { origin: base, "sec-fetch-site": "cross-site", host: new URL(base).host } }, configFrom({ CORE_URL: "http://127.0.0.1:1" }), false), /another site/);
 });

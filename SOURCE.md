@@ -44,6 +44,17 @@ recovery sign, and names it apart from met criteria in the week's list. The cont
 `docs/api/console-v1.json` is byte for byte what it was (only its prose, `console-v1.md`, grew), so
 `contract/` is not re-pinned. The project form sends no `solo`, so it sends no `acceptance` either.
 
+## Ported ahead of the copy: the runner-down chip (Core's runner visibility)
+
+Core commit `49156bf` (branch `feat/runner-visibility`) makes HQ's snapshot (`GET /v1/hq`, already in
+the contract) carry `runner: {state: up|stale|never, last_poll_secs, waiting}`, and its screen change is
+hand-ported here to `web/js/47-hq.js`: `hqQuiet`, `hqRunnerChip` and one `chips.push(hqRunnerChip(s.runner))`
+line in `hqChips`, with Core's check block in `scripts/check-console.mjs` ("The runner's state"). No
+chip while the runner is up, says nothing or is null (an older HQ, the demo); a red chip, with how long,
+when it is stale; `never` is quiet unless turns wait. Several runners share one token, so they count as
+one. The contract is unchanged, so `contract/` is not re-pinned. The next full copy from Endora carries
+the same change and replaces these lines.
+
 ## For Endora's ADR 0145, to apply there later
 
 The owner decided MU1 on 7 Nov, after ADR 0145 was written on Endora's step-2 branch. Its

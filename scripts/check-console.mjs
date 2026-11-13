@@ -953,6 +953,26 @@ if (failures.length) {
     const tags = runInContext("HQ_DESK_HELP.tripwire", context);
     if (!tags.includes("Resume lets it work again") || !tags.includes("Seen leaves it stopped")) fail("hq: the tripwire's help does not say what its choices do");
   }
+  // The runner's state (runner-down visibility). HQ says whether a runner is asking for turns: quiet
+  // when it is up, a chip when it is not, and a red one when a stale runner, or work waiting for one,
+  // is why nothing moves. An HQ that says nothing of it (older, or the demo) shows nothing.
+  {
+    const chipsWith = (runner) => runInContext(`hqChips(Object.assign({}, HQ.snap, { runner: ${JSON.stringify(runner)} }))`, context);
+    const runnerChip = (html) => (html.match(/<span class="hq-chip[^"]*" id="hq-runner"[^>]*>[^<]*<\/span>/) || [""])[0];
+    for (const [what, runner] of [["says nothing", undefined], ["is null (the demo)", null], ["is up", { state: "up", last_poll_secs: 2, waiting: 3 }]]) {
+      if (chipsWith(runner).includes("hq-runner")) fail(`hq: a runner that ${what} shows a chip`);
+    }
+    const stale = runnerChip(chipsWith({ state: "stale", last_poll_secs: 300, waiting: 0 }));
+    if (!stale.includes("Runner quiet for 5 min") || !stale.includes("hq-chip low")) fail(`hq: a stale runner's chip is not loud and does not say how long: ${stale}`);
+    const staleBusy = runnerChip(chipsWith({ state: "stale", last_poll_secs: 95, waiting: 2 }));
+    if (!staleBusy.includes("Runner quiet for 95 s") || !staleBusy.includes("2 turns wait for it")) fail(`hq: a stale runner with work waiting does not say so: ${staleBusy}`);
+    if (!runnerChip(chipsWith({ state: "stale", last_poll_secs: 95, waiting: 1 })).includes("1 turn waits for it")) fail("hq: one turn waiting for a stale runner is not said in the singular");
+    const never = runnerChip(chipsWith({ state: "never", last_poll_secs: null, waiting: 0 }));
+    if (!never.includes("No runner has asked since HQ started") || never.includes("low")) fail(`hq: a runner not yet heard from is not a quiet chip: ${never}`);
+    const neverBusy = runnerChip(chipsWith({ state: "never", last_poll_secs: null, waiting: 1 }));
+    if (!neverBusy.includes("hq-chip low") || !neverBusy.includes("1 turn waits for it")) fail(`hq: work waiting with no runner ever heard from is not loud: ${neverBusy}`);
+    if (!runInContext(`viewHQ()`, context).includes("hq-chips")) fail("hq: the chips are gone from the view");
+  }
   // "Try again" posts exactly the decision HQ takes for stuck work, and when HQ refuses it the
   // card says why and keeps saying it: a press that seems to do nothing is the worst answer.
   {

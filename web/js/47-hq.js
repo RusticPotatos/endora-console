@@ -770,11 +770,30 @@ function hqWorkForm(s) {
       <button class="hq-btn tall" data-act="hq:work:cancel:go">Cancel</button></div></div>`;
 }
 
+// How long ago, in the unit a glance wants: seconds under two minutes, then minutes, then hours.
+function hqQuiet(secs) {
+  const n = Math.max(0, Number(secs) || 0);
+  return n < 120 ? `${n} s` : n < 7200 ? `${Math.round(n / 60)} min` : `${Math.round(n / 3600)} h`;
+}
+
+// HQ never reaches out to the runner, so a runner that stops or loses the network shows as nothing
+// moving. Quiet while it is up (no chip). `stale` is always red; `never` (no request since HQ
+// started, which a runner ends within seconds) is red only when turns wait for one.
+function hqRunnerChip(r) {
+  if (!r || (r.state !== "stale" && r.state !== "never")) return "";
+  const waiting = Number(r.waiting) || 0;
+  const loud = r.state === "stale" || waiting > 0;
+  const said = r.state === "stale" ? `Runner quiet for ${hqQuiet(r.last_poll_secs)}` : "No runner has asked since HQ started";
+  const work = waiting > 0 ? ` · ${waiting} ${waiting === 1 ? "turn waits" : "turns wait"} for it` : "";
+  return `<span class="hq-chip${loud ? " low" : ""}" id="hq-runner" role="status" title="The runner asks HQ for turns every few seconds. Check that endora-runner is running and can reach HQ. HQ cannot tell several runners apart, so this is the latest of all of them.">${said}${work}</span>`;
+}
+
 // The small status chips under the title: today's pool and what waits on the owner.
 function hqChips(s) {
   const pool = s.pool || {}, waiting = (s.desk || []).length;
   // What waits on the owner first: a phone's chips scroll, and this one must always show.
   const chips = [`<button class="hq-chip hq-chip-go${waiting ? " has" : ""}" data-act="hq:place:map:decisions">${waiting ? `${waiting} waiting on you` : "Nothing waiting on you"}</button>`];
+  chips.push(hqRunnerChip(s.runner));
   if (pool.per_day != null) {
     const left = Math.max(0, pool.per_day - (pool.committed || 0));
     chips.push(`<span class="hq-chip" title="Today's money for the whole team"><span class="hq-wide">Pool </span><span class="hq-spent">${hqDollars(pool.spent)} spent · </span>${hqDollars(left)} left</span>`);

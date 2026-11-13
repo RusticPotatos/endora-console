@@ -795,7 +795,18 @@ function hqQuiet(secs) {
 // HQ never reaches out to the runner, so a runner that stops or loses the network shows as nothing
 // moving. Quiet while it is up (no chip). `stale` is always red; `never` (no request since HQ
 // started, which a runner ends within seconds) is red only when turns wait for one.
-function hqRunnerChip(r) {
+// Runners share one token, so each says its name (RUNNER_NAME) and HQ lists them (`runners`, the
+// quietest first). With names, any stale one is a loud chip naming it, even beside one that is up;
+// all up is quiet. With no list, or one `unnamed` entry (an older runner), it reads as one runner.
+// A runner stopped on purpose stays listed as stale until HQ restarts.
+function hqRunnerChip(r, runners) {
+  const named = Array.isArray(runners) && !(runners.length === 1 && runners[0] && runners[0].name === "unnamed") ? runners : [];
+  if (named.length) {
+    const stale = named.filter((x) => x && x.state === "stale");
+    if (!stale.length) return "";
+    const more = stale.length > 1 ? ` · +${stale.length - 1} more` : "";
+    return `<span class="hq-chip low" id="hq-runner" role="status" title="This runner has not asked HQ for turns lately. Check that endora-runner is running on that host and can reach HQ. A runner stopped on purpose stays listed until HQ restarts.">Runner ${esc(stale[0].name)} quiet for ${hqQuiet(stale[0].last_poll_secs)}${more}</span>`;
+  }
   if (!r || (r.state !== "stale" && r.state !== "never")) return "";
   const waiting = Number(r.waiting) || 0;
   const loud = r.state === "stale" || waiting > 0;
@@ -809,7 +820,7 @@ function hqChips(s) {
   const pool = s.pool || {}, waiting = (s.desk || []).length;
   // What waits on the owner first: a phone's chips scroll, and this one must always show.
   const chips = [`<button class="hq-chip hq-chip-go${waiting ? " has" : ""}" data-act="hq:place:map:decisions">${waiting ? `${waiting} waiting on you` : "Nothing waiting on you"}</button>`];
-  chips.push(hqRunnerChip(s.runner));
+  chips.push(hqRunnerChip(s.runner, s.runners));
   if (pool.per_day != null) {
     const left = Math.max(0, pool.per_day - (pool.committed || 0));
     chips.push(`<span class="hq-chip" title="Today's money for the whole team"><span class="hq-wide">Pool </span><span class="hq-spent">${hqDollars(pool.spent)} spent · </span>${hqDollars(left)} left</span>`);

@@ -52,8 +52,21 @@ hand-ported here to `web/js/47-hq.js`: `hqQuiet`, `hqRunnerChip` and one `chips.
 line in `hqChips`, with Core's check block in `scripts/check-console.mjs` ("The runner's state"). No
 chip while the runner is up, says nothing or is null (an older HQ, the demo); a red chip, with how long,
 when it is stale; `never` is quiet unless turns wait. Several runners share one token, so they count as
-one. The contract is unchanged, so `contract/` is not re-pinned. The next full copy from Endora carries
+one (until they name themselves: the next section). The contract is unchanged, so `contract/` is not re-pinned. The next full copy from Endora carries
 the same change and replaces these lines.
+
+## Ported ahead of the copy: which runner went quiet (Core's `feat/runner-identity`)
+
+Runners share one token, so each says its name and HQ's snapshot (`GET /v1/hq`, already in the
+contract) now also carries `runners: [{name, state: up|stale, last_poll_secs}]`, the quietest first.
+Hand-ported to `web/js/47-hq.js`: `hqRunnerChip(r, runners)` (one more argument in the
+`chips.push(hqRunnerChip(s.runner, s.runners))` line of `hqChips`), with Core's check block in
+`scripts/check-console.mjs` ("Which runner"). Any listed runner that is stale is a loud chip naming it
+("Runner runner-a quiet for 5 min"; several: the first and "+N more"), even beside one that is up; all up is
+quiet; with no `runners`, or one `unnamed` entry (an older runner), it reads `runner` exactly as above.
+A runner stopped on purpose stays listed as stale until HQ restarts. The contract is unchanged, so
+`contract/` is not re-pinned. The next full copy from Endora carries the same change and replaces
+these lines.
 
 ## Ported ahead of the copy: the desk cards' clarity (Core's `feat/desk-card-clarity`)
 

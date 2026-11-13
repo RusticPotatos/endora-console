@@ -973,6 +973,32 @@ if (failures.length) {
     if (!neverBusy.includes("hq-chip low") || !neverBusy.includes("1 turn waits for it")) fail(`hq: work waiting with no runner ever heard from is not loud: ${neverBusy}`);
     if (!runInContext(`viewHQ()`, context).includes("hq-chips")) fail("hq: the chips are gone from the view");
   }
+    // Which runner (per-runner identity). Runners share one token, so each says its name and HQ lists
+    // them (`runners`). Any listed runner that is stale gets a loud chip naming it, even beside one
+    // that is up; all up is quiet; no list, or one unnamed entry (an older runner), reads as before.
+    {
+      const chipsOf = (runner, runners) => runInContext(`hqChips(Object.assign({}, HQ.snap, { runner: ${JSON.stringify(runner)}, runners: ${JSON.stringify(runners)} }))`, context);
+      const one = (html) => (html.match(/<span class="hq-chip[^"]*" id="hq-runner"[^>]*>[^<]*<\/span>/) || [""])[0];
+      const up = { state: "up", last_poll_secs: 2, waiting: 0 };
+      const a = (state, secs) => ({ name: "runner-a", state, last_poll_secs: secs });
+      const b = (state, secs) => ({ name: "runner-b", state, last_poll_secs: secs });
+      const c = (state, secs) => ({ name: "runner-c", state, last_poll_secs: secs });
+      const beside = one(chipsOf(up, [a("stale", 300), b("up", 2)]));
+      if (!beside.includes("Runner runner-a quiet for 5 min") || !beside.includes("hq-chip low") || beside.includes("more")) fail(`hq: a stale named runner beside a live one is not a loud chip naming it: ${beside}`);
+      const two = one(chipsOf(up, [a("stale", 300), b("stale", 200), c("up", 2)]));
+      if (!two.includes("Runner runner-a quiet for 5 min") || !two.includes("+1 more") || two.includes("runner-b")) fail(`hq: two stale runners are not one chip naming the first and counting the rest: ${two}`);
+      const three = one(chipsOf(up, [a("stale", 300), b("stale", 200), c("stale", 100)]));
+      if (!three.includes("+2 more")) fail(`hq: three stale runners do not say +2 more: ${three}`);
+      for (const [what, runner, runners] of [["all listed up", up, [a("up", 2), b("up", 5)]], ["one unnamed, up", up, [{ name: "unnamed", state: "up", last_poll_secs: 2 }]]]) {
+        if (chipsOf(runner, runners).includes("hq-runner")) fail(`hq: runners with ${what} show a chip`);
+      }
+      const old = one(chipsOf({ state: "stale", last_poll_secs: 300, waiting: 2 }, [{ name: "unnamed", state: "stale", last_poll_secs: 300 }]));
+      if (!old.includes("Runner quiet for 5 min") || old.includes("unnamed") || !old.includes("2 turns wait for it")) fail(`hq: a lone unnamed runner is not read as before: ${old}`);
+      const none = one(chipsOf({ state: "never", last_poll_secs: null, waiting: 1 }, []));
+      if (!none.includes("No runner has asked since HQ started") || !none.includes("hq-chip low")) fail(`hq: an empty runners list is not read as before: ${none}`);
+      const escaped = one(chipsOf(up, [{ name: "<b>x</b>", state: "stale", last_poll_secs: 300 }, b("up", 2)]));
+      if (escaped.includes("<b>") || !escaped.includes("&lt;b&gt;")) fail(`hq: a runner's name is not escaped in its chip: ${escaped}`);
+    }
   // "Try again" posts exactly the decision HQ takes for stuck work, and when HQ refuses it the
   // card says why and keeps saying it: a press that seems to do nothing is the worst answer.
   {
